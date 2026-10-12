@@ -1,0 +1,15 @@
+# ── Global settings ───────────────────────────────────────────────────────────
+global:
+  operatorNamespace: ibm-bob-operators
+  instanceNamespace: ibm-bob
+  fileStorageClass: "efs-sc"
+  blockStorageClass: "gp3-csi"
+  imagePullSecretName: ibm-entitlement-key
+
+# ── Bob instance settings ─────────────────────────────────────────────────────
+bob:
+  modelGateway:
+    modelConfig: ""
+    secrets:
+      INFERENCE_API_KEY: "sk-oai-..."    # API key for a custom inference service
+```

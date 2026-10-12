@@ -1,0 +1,120 @@
+# Model Gateway Configuration Template
+# Copy this file, name it anything, and pass it to the --model-config flag.
+# Run:
+#  ./bobctl install --model-config <filename>.yaml
+#  OR
+#  ./bobctl update-model-config --model-config <filename>.yaml
+#
+# ── Provider definitions ──────────────────────────────────────────────────────
+# The x-providers key is ignored by the model gateway — it is a YAML
+# scratchpad documenting examples from the supported providers.
+# Only the active provider needs credentials and have its anchor referenced
+# below under ACTIVE MODEL
+x-providers:
+
+  # OpenAI-compatible endpoint (e.g. Azure OpenAI)
+  azure: &azure
+    openai_compatible:
+      model: gpt-5.6-sol                          # Model ID as expected by the provider
+      base_url: https://<resource>.cognitiveservices.azure.com/openai
+      api_key: env.AZURE_API_KEY              # env.<VAR> reads from the model gateway secrets
+    model_info:
+      exposed: true
+      provider: openai
+      family: gpt
+      version: "5.6-sol"
+      max_input_tokens: 270000
+      max_output_tokens: 20000
+      supports_prompt_caching: true
+      supports_vision: true
+      mode: chat
+
+  # AWS Bedrock
+  bedrock: &bedrock
+    bedrock:
+      model: us.anthropic.claude-sonnet-5
+      region: us-east-1                           # AWS region where your Bedrock endpoint lives
+      access_key_id: env.AWS_ACCESS_KEY           # env.<VAR> reads from the model gateway secrets
+      secret_access_key: env.AWS_SECRET_ACCESS_KEY
+    model_info:
+      exposed: true
+      provider: anthropic
+      family: sonnet
+      version: "5"
+      max_input_tokens: 270000
+      max_output_tokens: 20000
+      supports_prompt_caching: true
+      supports_vision: true
+      mode: chat
+
+  # Google Vertex AI (Gemini)
+  gemini: &gemini
+    vertex:
+      model: gemini-3.6-flash
+      project: <gcp-project-id>                   # GCP project ID
+      location: global                            # Vertex AI region / "global" for Global API
+      credentials: env.GEMINI_CREDENTIALS     # Service-account JSON, base64-encoded
+    model_info:
+      exposed: true
+      provider: google
+      family: gemini
+      version: "3.6-flash"
+      max_input_tokens: 270000
+      max_output_tokens: 20000
+      supports_prompt_caching: true
+      supports_vision: true
+      mode: chat
+
+  # Custom Inference Service (RHOAI, vLLM, etc)
+  inference_service: &isvc
+    openai_compatible:
+      model:
+      base_url: <https://llm-inference-server>  # `/v1/chat/completions` will be appended
+      api_key: env.INFERENCE_API_KEY
+      extra_headers:
+        custom-key-header: env.INFERENCE_API_KEY
+    model_info:
+      exposed: true
+      provider: nvidia
+      family: nemotron
+      version: "3-ultra"
+      max_input_tokens: 262144
+      supports_vision: false
+      mode: chat
+
+# ── Models ────────────────────────────────────────────────────────────────────
+models:
+
+  # ── ACTIVE MODEL ─────────────────────────────────────────────────────────────
+  # Change <<: *isvc to eg. *azure, *bedrock, or *gemini to
+  # switch providers / models to one fully configured above
+  - &chat_llm
+    model_name: premium-ide
+    openai_compatible:
+      model: publishers/bob/models/llmisvc-nemotron35
+      base_url: https://maas.apps.<cluster-domain>
+      api_key: env.INFERENCE_API_KEY
+    model_info:
+      exposed: true
+      provider: nvidia
+      family: nemotron
+      version: "3-ultra" # It failed to load the model unless this was 3-ultra...
+      max_input_tokens: 200000
+      max_output_tokens: 56000
+      supports_vision: false
+      mode: chat
+
+  # ── Aliases ───────────────────────────────────────────────────────────────────
+  - <<: *chat_llm
+    model_name: security
+
+  - <<: *chat_llm
+    model_name: background
+
+# ── Router ────────────────────────────────────────────────────────────────────
+routers:
+  - name: router
+    strategy: static
+    static:
+      default_model: premium-ide
+```
