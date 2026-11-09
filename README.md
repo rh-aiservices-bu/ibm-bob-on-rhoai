@@ -361,3 +361,36 @@ Install the [IBM Bob IDE binary](https://bob.ibm.com/docs/ide/getting-started/in
 After trusting the workspace folder, the Bob chat interface will appear. 🎉
 
 ![Bob IDE chat](images/image28.png)
+
+## Troubleshooting
+
+### LLMInferenceService Startup Probe
+
+When deploying large models (i.e. >70B parameters), the model loading time can be so long that the startup probe will restart the pod too soon. If you notice this, you can extend the startup probe in the `LLMInferenceService` object via:
+
+```yaml
+spec:
+  template:
+    containers:
+      - name: 
+        ...
+        startupProbe:
+          failureThreshold: 120 # Default: 60; 120 * 10s = 20 minutes
+          periodSeconds: 10     # Default: 10
+```
+
+### load-model-to-pvc.sh XET Models
+
+If your OpenShift cluster is behind a corporate VPN or proxy, there may not be rules setup to allow for HuggingFaces' XET protocol. You can disable this transfer method by setting `--disable-xet` when calling `load-model-to-pvc.sh`.
+
+### vLLM MM processor cache crash
+
+Occasionally, vLLM's 'profile_run()' can crash with "ValueError: value too large". See [vLLM#52835](https://github.com/vllm-project/vllm/issues/52835) for more information as to why this happens.
+
+To fix this, you can either [increase the cache size](https://docs.vllm.ai/en/stable/cli/bench/mm_processor/#-mm-processor-cache-gb), or you can [limit what modality is allowed](https://docs.vllm.ai/en/stable/cli/bench/mm_processor/#-limit-mm-per-prompt). These are both applied via vLLM runtime arguments, and is done when [deploying the model via the UI](./README.md#1-model-deployment-rhoai)).
+
+```bash
+--mm-processor-cache-gb=24 # This ill increase the memory requirement of the model.
+or
+--limit-mm-per-prompt='{"video":0}'  # This will reject all video inputs in your prompts. 
+```

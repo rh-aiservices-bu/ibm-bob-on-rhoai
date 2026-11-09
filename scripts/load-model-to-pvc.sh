@@ -25,6 +25,8 @@ Optional:
   -t, --token           HuggingFace API token          (or set \$HF_TOKEN)
   -N, --node            Node name to schedule the loader pod on
   -g, --gpu-toleration  Add toleration for nvidia.com/gpu:NoSchedule tainted nodes
+  -x, --disable-xet     Disable the Xet protocol (set HF_HUB_DISABLE_XET=1) — useful if
+                        downloads fail on corporate VPNs/proxies
   -h, --help            Show this help
 
 If no token is provided, the model must be publicly accessible.
@@ -45,6 +47,7 @@ IMAGE="${DEFAULT_IMAGE}"
 HF_TOKEN_ARG=""
 NODE_NAME=""
 GPU_TOLERATION=false
+DISABLE_XET=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -57,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     -t|--token)           HF_TOKEN_ARG="$2";  shift 2 ;;
     -N|--node)            NODE_NAME="$2";     shift 2 ;;
     -g|--gpu-toleration)  GPU_TOLERATION=true; shift ;;
+    -x|--disable-xet)     DISABLE_XET=true;   shift ;;
     -h|--help)            usage; exit 0 ;;
     *) die "Unknown option: '$1'. Use --help for usage." ;;
   esac
@@ -112,6 +116,8 @@ fi
 echo "│  Node         : ${NODE_NAME}"
 [[ "$GPU_TOLERATION" == true ]] && \
 echo "│  GPU toleration: enabled (nvidia.com/gpu:NoSchedule)"
+[[ "$DISABLE_XET" == true ]] && \
+echo "│  Xet protocol : disabled"
 echo "└──────────────────────────────────────────────"
 
 # ── cleanup trap ──────────────────────────────────────────────────────────────
@@ -158,6 +164,11 @@ pod_manifest() {
       operator: Exists
       effect: NoSchedule"
 
+  local xet_env=""
+  [[ "$DISABLE_XET" == true ]] && xet_env="        - name: HF_HUB_DISABLE_XET
+          value: \"1\"
+"
+
   cat <<MANIFEST
 apiVersion: v1
 kind: Pod
@@ -193,8 +204,8 @@ ${fs_group_line}
           hf download ${MODEL_REPO} --local-dir /mnt/model
       env:
         - name: HF_HOME
-          value: /tmp/hf-cache
-${token_env}      securityContext:
+          value: /mnt/model/.hf-cache
+${xet_env}${token_env}      securityContext:
         allowPrivilegeEscalation: false
         capabilities:
           drop:
