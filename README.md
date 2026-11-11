@@ -1,8 +1,10 @@
 # IBM Bob on RHOAI
 
-End-to-end guide for deploying [IBM Bob](https://bob.ibm.com/docs/ide/enterprise/on-premises/installation/install) on OpenShift with a self-hosted Nemotron model served via RHOAI MaaS.
+End-to-end guide for deploying [IBM Bob](https://bob.ibm.com/docs/ide/enterprise/on-premises/installation/install) on OpenShift with a self-hosted Nemotron model served via RHOAI Models-as-a-Service (MaaS).
 
-## Environment
+## Prerequisites
+
+Below are the platform components that were used to develop this guide. 
 
 | Component | Version |
 |---|---|
@@ -11,23 +13,48 @@ End-to-end guide for deploying [IBM Bob](https://bob.ibm.com/docs/ide/enterprise
 | Red Hat Connectivity Link | 1.4.3 |
 
 **Storage:** `gp3-csi` (Block RWO), `efs` (FS RWX)  
-**GPU:** 1× NVIDIA L40S 48GB VRAM (`g6e.2xlarge`)
+
+**GPU:** 4× NVIDIA H100 80GB VRAM (for Nemotron 3.5 Super VL 120B BF16)
 
 **Deploying IBM Bob v2.0.0**
 
----
+> Note: The GPU requirement will change depending on the model you choose to back IBM Bob with. The list of supported models can be found in the [IBM Bob documentation](https://bob.ibm.com/docs/ide/enterprise/on-premises/model-gateway/supported-models#air-gapped-models).
 
-## 1. Model Deployment (RHOAI)
+## Automated Model Deployment
 
-> MaaS was configured on the cluster using this [automated setup script](https://rh-aiservices-bu.github.io/rhoai-maas-guide/modules/main/quick-start.html).
+A `kustomization.yaml` has been provided for you in `./deploy-model`, that will automatically deploy a single replica of the [Nemotron 3.5 Super VL 120B BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16) model. It is presumed you are using 4xH100 GPU nodes. Manifests may need to be edited if this is not the case.
 
-**Model:** [NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8)
+```bash
+$ cp deploy-model/hf-token.env.example deploy-model/hf-token.env
 
-- Chosen as the [closest-to-supported](https://bob.ibm.com/docs/ide/enterprise/on-premises/model-gateway/supported-models#air-gapped-models) reasonable model deployable in this environment.
-- FP8 quantisation fits on a single L40S GPU.
-- Deployed with llm-d, as required by RHOAI MaaS.
+# Edit below to speed up the model weight download from HuggingFace.
+$ vi deploy-model/hf-token.env
 
-### Steps
+$ oc apply -k deploy-model/
+
+namespace/bob created
+secret/hf-token created
+persistentvolumeclaim/nemotron-super-vl created
+job.batch/nemotron-super-vl-loader created
+llminferenceservice.serving.kserve.io/nemotron-super-vl created
+```
+
+This will do the following:
+
+* Download the weights into a PVC called "nemotron-super-vl". This job can take ~15 minutes, depending on network speed.
+* Deploy an `LLMInferenceService` object. This will deploy the model and make it available as an AI Asset Endpoint / part of RHOAI's MaaS.
+
+Once this is done, you can continue from [MaaS Configuration](#2-maas-configuration)
+
+## Manual Model Deployment
+
+> Note: MaaS was configured on the cluster using this [automated setup script](https://rh-aiservices-bu.github.io/rhoai-maas-guide/modules/main/quick-start.html).
+
+The model deployed for this guide is [NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16). This is one of the models supported by IBM Bob, though [others are available](https://bob.ibm.com/docs/ide/enterprise/on-premises/model-gateway/supported-models#air-gapped-models). 
+
+This model will be deployed on Red Hat OpenShift AI >=V3.5, with llm-d, as this is what's required by RHOAI Models-as-a-Service (MaaS).
+
+#### Steps
 
 **1. Create and label the `bob` namespace**
 
@@ -45,10 +72,10 @@ Pre-loading reduces model startup time. See [`scripts/load-model-to-pvc.sh`](scr
 ```sh
 ./scripts/load-model-to-pvc.sh \
   --namespace bob \
-  -m hf://RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8 \
-  -s 50Gi \
+  -m hf://nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16 \
+  -s 200Gi \
   -t ${HF_TOKEN} \
-  -p nemotron-3.5-lightning \
+  -p nemotron-35-super-vl \
   -g -N ${GPU_WORKER_NODE}
 ```
 
@@ -71,6 +98,7 @@ Ensure that **"Add as AI asset endpoint"** and **"Publish as MaaS"** are checked
 Also, add the following vLLM runtime arguments during deployment:
 
 ```
+--tensor-parallel-size=4
 --reasoning-parser=nemotron_v3
 --tool-call-parser=qwen3_coder
 --enable-auto-tool-choice
@@ -85,15 +113,15 @@ Click **Next** → **Deploy Model**.
 ```sh
 oc get pods -n bob
 
-NAME                                                          READY   STATUS    RESTARTS   AGE
-llmisvc-nemotron35-kserve-849bd57cd9-qsg94                    1/1     Running   0          5h25m
-llmisvc-nemotron35-kserve-router-scheduler-595c8d996b-8tzx7   1/1     Running   0          29h
+NAME                                                         READY   STATUS      RESTARTS   AGE
+nemotron-super-vl-kserve-549fb6664f-99df8                    1/1     Running     0          24m
+nemotron-super-vl-kserve-router-scheduler-85c9cb48bb-fnsvf   1/1     Running     0          24m
 ```
 
 > **Tainted GPU nodes:** Your pods may fail to schedule if they're tainted. In that case, add a toleration to the `LLMInferenceService` CR:
 >
 > ```sh
-> oc edit llmisvc nemotron-35-lightning -n bob
+> oc edit llmisvc nemotron-super-vl -n bob
 > ```
 >
 > ```yaml
@@ -102,12 +130,12 @@ llmisvc-nemotron35-kserve-router-scheduler-595c8d996b-8tzx7   1/1     Running   
 >     tolerations:
 >     - effect: NoSchedule
 >       key: nvidia.com/gpu
->       value: NVIDIA-L40S-PRIVAYE
+>       value: NVIDIA-H100-PRIVAYE
 > ```
 
 ---
 
-## 2. MaaS Configuration
+### 2. MaaS Configuration
 
 With **"Add as AI Asset Endpoint"** and **"Publish to MaaS"** checked, the model will then appear in the AI asset endpoints page.
 
@@ -119,7 +147,7 @@ Go to **Settings > MaaS Governance > Subscriptions** → **Create Subscription**
 
 ![Create subscription](images/image06.png)
 
-- Name the subscription (e.g. `nemotron-35-sub`)
+- Name the subscription (e.g. `nemotron-super-vl-sub`)
 - Set a priority (irrelevant if this is your only subscription)
 - In the **Groups** field, type `system:authenticated` (won't appear in the dropdown — this grants access to any OpenShift-authenticated user)
 
@@ -154,7 +182,7 @@ Select the subscription you just created. Set an expiry (maximum 90 days).
 
 ![API Key created](images/image14.png)
 
-### Verification
+#### Verification
 
 Navigate to **Gen AI Studio > AI asset endpoints**. You'll see two entries for your model.
 
@@ -170,13 +198,13 @@ Test inference using [`scripts/test-maas-endpoint.sh`](scripts/test-maas-endpoin
 
 ---
 
-## 3. IBM Bob Deployment
+### 3. IBM Bob Deployment
 
 > **Docs:** [IBM Bob — Installation](https://bob.ibm.com/docs/ide/enterprise/on-premises/installation/install)
 
 > **Note:** You will need an entitlement key for access to IBM Container Registry images.
 
-### Steps
+#### Steps
 
 **1. Download and extract the release bundle**
 
@@ -220,13 +248,13 @@ bob-cr   True    Last reconciliation succeeded   25h
 
 ---
 
-## 4. RHBK Configuration
+### 4. RHBK Configuration
 
 IBM Bob ships with Red Hat Build of Keycloak (RHBK) for authentication, including pre-made groups and an admin user.
 
 > **Docs:** [IBM Bob — User Management](https://bob.ibm.com/docs/ide/enterprise/on-premises/user-management#managing-direct-keycloak-users)
 
-### Steps
+#### Steps
 
 **1. Find the Keycloak route**
 
@@ -252,7 +280,7 @@ Note down the email address. Click the user, go to **Credentials** → **Reset P
 
 ![Reset password](images/image19.png)
 
-### Verify
+#### Verify
 
 Retrieve the IBM Bob UI route — use the one whose hostname does **not** start with `api.bob`:
 
@@ -271,7 +299,7 @@ Log in with the Keycloak email and password.
 
 ---
 
-## 5. Model Configuration
+### 5. Model Configuration
 
 > **Docs:** [IBM Bob — Model Gateway Configuration](https://bob.ibm.com/docs/ide/enterprise/on-premises/model-gateway/configuration)
 
@@ -306,7 +334,7 @@ Apply the configuration:
 
 ---
 
-## 6. Consuming IBM Bob
+### 6. Consuming IBM Bob
 
 > **Docs:** [IBM Bob — Accessing On-Premises](https://bob.ibm.com/docs/ide/enterprise/on-premises/accessing)
 
@@ -340,7 +368,7 @@ Finally you'll have a Bob Shell connected to your RHOAI hosted model! 🎉
 
 ![Bob Shell running](images/image24.png)
 
-### Bob IDE
+#### Bob IDE
 
 > The IDE picks up settings populated by a successful Bob Shell login, so complete the Shell setup first.
 

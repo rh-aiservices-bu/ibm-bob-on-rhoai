@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bob
+
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - model-loader-job.yaml
+  - llminferenceservice.yaml
+
+# Reads deploy-model/hf-token.env (git-ignored — copy hf-token.env.example to
+# hf-token.env and fill in your token before running `oc apply -k`).
+secretGenerator:
+  - name: hf-token
+    envs:
+      - hf-token.env
+
+generatorOptions:
+  disableNameSuffixHash: true

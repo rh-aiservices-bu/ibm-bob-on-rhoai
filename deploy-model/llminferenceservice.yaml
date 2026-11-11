@@ -1,0 +1,44 @@
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  annotations:
+    opendatahub.io/connections: nemotron-super-vl
+    opendatahub.io/hardware-profile-name: gpu-profile
+    opendatahub.io/hardware-profile-namespace: redhat-ods-applications
+    opendatahub.io/model-type: generative
+    openshift.io/display-name: nemotron-super-vl
+  name: nemotron-super-vl
+  namespace: bob
+  finalizers:
+    - serving.kserve.io/llmisvc-finalizer
+  labels:
+    opendatahub.io/dashboard: 'true'
+    opendatahub.io/genai-asset: 'true'
+spec:
+  model:
+    name: nemotron-super-vl
+    uri: 'pvc://nemotron-35-super-vl'
+  replicas: 1
+  router:
+    gateway:
+      refs:
+        - name: maas-default-gateway
+          namespace: openshift-ingress
+    route: {}
+    scheduler: {}
+  template:
+    containers:
+      - env:
+          - name: VLLM_ADDITIONAL_ARGS
+            value: '--tensor-parallel-size=4 --reasoning-parser=nemotron_v3 --tool-call-parser=qwen3_coder --enable-auto-tool-choice'
+        name: main
+        resources:
+          limits:
+            cpu: '16'
+            memory: 128Gi
+            nvidia.com/gpu: '4'
+          requests:
+            cpu: '8'
+            memory: 128Gi
+            nvidia.com/gpu: '4'

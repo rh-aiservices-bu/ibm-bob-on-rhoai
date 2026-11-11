@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nemotron-super-vl
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # storageClassName: gp3-csi   # uncomment to pin explicitly; cluster default is used otherwise
+  resources:
+    requests:
+      # BF16 weights for this 120B model are ~240Gi; this leaves headroom for the HF cache.
+      storage: 300Gi

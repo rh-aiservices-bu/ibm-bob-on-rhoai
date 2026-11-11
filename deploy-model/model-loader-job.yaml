@@ -1,0 +1,62 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nemotron-3.5-super-vl-loader
+  labels:
+    app: model-loader
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: model-loader
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        # fsGroup is required so the pod can write to a freshly provisioned PVC.
+        # Find your namespace's value with:
+        #   oc get namespace bob -o jsonpath='{.metadata.annotations.openshift\.io/sa\.scc\.supplemental-groups}'
+        # fsGroup: <namespace-supplemental-group-start>
+      # Uncomment if your H100 nodes are tainted (see README Troubleshooting section):
+      # tolerations:
+      #   - key: nvidia.com/gpu
+      #     operator: Exists
+      #     effect: NoSchedule
+      containers:
+        - name: downloader
+          image: registry.access.redhat.com/ubi9/python-311
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              pip install --quiet huggingface_hub
+              hf download nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16 --local-dir /mnt/model
+          env:
+            - name: HF_HOME
+              value: /mnt/model/.hf-cache
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: HF_TOKEN
+          resources:
+            limits:
+              cpu: "4"
+              memory: 16Gi
+            requests:
+              cpu: 500m
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: model-storage
+              mountPath: /mnt/model
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: nemotron-super-vl
