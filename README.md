@@ -151,7 +151,7 @@ Go to **Settings > MaaS Governance > Subscriptions** → **Create Subscription**
 - Set a priority (irrelevant if this is your only subscription)
 - In the **Groups** field, type `system:authenticated` (won't appear in the dropdown — this grants access to any OpenShift-authenticated user)
 
-- Click **Add models** and select `nemotron-3.5-lightning`.
+- Click **Add models** and select `nemotron-super-vl`.
 
 ![Subscription groups](images/image07.png)
 
